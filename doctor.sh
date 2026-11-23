@@ -24,7 +24,7 @@ for pair in \
   "$HOME_DIR/.config/cmux/sidebars/ops-board.swift:ops-board.swift" \
   "$HOME_DIR/.config/cmux/sidebars/ops-board-lite.js:ops-board-lite.js" \
   "$HOME_DIR/.config/cmux/dock.json:dock.json" \
-  "$HOME_DIR/Library/LaunchAgents/com.lovelogic.cmux.ops-poller.plist:ops-poller.plist"; do
+  "$HOME_DIR/Library/LaunchAgents/com.cmux.ops-poller.plist:ops-poller.plist"; do
   path="${pair%%:*}"; name="${pair##*:}"
   if [ -f "$path" ]; then ok "$name"; else bad "$name missing ($path)"; fi
 done
@@ -36,8 +36,8 @@ done
 echo "launchd:"
 # Periodic job: runs every 20s then exits — "not running" between ticks is normal.
 # Healthy = label registered AND last exit code 0 (or never exited).
-_lp=$(launchctl print "gui/$UID_N/com.lovelogic.cmux.ops-poller" 2>/dev/null)
-if printf '%s' "$_lp" | grep -q "com.lovelogic.cmux.ops-poller"; then
+_lp=$(launchctl print "gui/$UID_N/com.cmux.ops-poller" 2>/dev/null)
+if printf '%s' "$_lp" | grep -q "com.cmux.ops-poller"; then
   if printf '%s' "$_lp" | grep -qE "last exit code = 0|last exit code = \(never exited\)|state = running"; then
     ok "ops-poller loaded (periodic, last exit 0/running)"
   else

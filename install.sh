@@ -27,12 +27,18 @@ done
 
 # ── 2. ops poller + launchd ──────────────────────────────────────────────────
 say "ops poller"
-mkdir -p "$HOME_DIR/.config/cmux/ops"
+mkdir -p "$HOME_DIR/.config/cmux/ops" "$HOME_DIR/Library/LaunchAgents"
 install -m 0644 "$FILES/cmux/ops/poller.py" "$HOME_DIR/.config/cmux/ops/poller.py"
-install -m 0644 "$FILES/launchd/com.lovelogic.cmux.ops-poller.plist" \
-  "$HOME_DIR/Library/LaunchAgents/com.lovelogic.cmux.ops-poller.plist"
+# plist template: __HOME__/__USER__ rendered at install time → portable
+LA="$HOME_DIR/Library/LaunchAgents/com.cmux.ops-poller.plist"
+sed -e "s|__HOME__|$HOME_DIR|g" -e "s|__USER__|$(id -un)|g" \
+    "$FILES/launchd/com.cmux.ops-poller.plist.in" > "$LA"
+chmod 0644 "$LA"
+# upgrade path: drop the pre-rename label/file if an older install left them
 launchctl bootout "gui/$UID_N/com.lovelogic.cmux.ops-poller" 2>/dev/null || true
-launchctl bootstrap "gui/$UID_N" "$HOME_DIR/Library/LaunchAgents/com.lovelogic.cmux.ops-poller.plist" 2>/dev/null || true
+rm -f "$HOME_DIR/Library/LaunchAgents/com.lovelogic.cmux.ops-poller.plist"
+launchctl bootout "gui/$UID_N/com.cmux.ops-poller" 2>/dev/null || true
+launchctl bootstrap "gui/$UID_N" "$LA" 2>/dev/null || true
 
 # ── 3. sidebars ──────────────────────────────────────────────────────────────
 say "sidebars"
@@ -50,10 +56,10 @@ install -m 0644 "$FILES"/sidebars/* "$SB/"
 # ── 4. dock.json (merge controls by id) ──────────────────────────────────────
 say "dock.json"
 mkdir -p "$HOME_DIR/.config/cmux"
-python3 - "$FILES/cmux/dock.json" "$HOME_DIR/.config/cmux/dock.json" <<'PY'
+HOME_DIR="$HOME_DIR" python3 - "$FILES/cmux/dock.json.in" "$HOME_DIR/.config/cmux/dock.json" <<'PY'
 import json, sys
 src, dst = sys.argv[1], sys.argv[2]
-new = json.load(open(src))
+new = json.loads(open(src).read().replace("__HOME__", __import__("os").environ["HOME_DIR"]))
 try:
     cur = json.load(open(dst))
 except (OSError, json.JSONDecodeError):
@@ -69,8 +75,8 @@ json.dump(cur, open(dst, "w"), indent=2)
 print(f"dock.json: {len(controls)} control(s)")
 PY
 
-# ── 5. cmux-sentinel ─────────────────────────────────────────────────────────
 say "cmux-sentinel"
+mkdir -p "$HOME_DIR/bin"
 if [ ! -d "$HOME_DIR/.cmux-sentinel" ]; then
   git clone --depth 1 https://github.com/oliver-kriska/cmux-sentinel.git "$HOME_DIR/.cmux-sentinel" || warn "sentinel clone failed"
 fi

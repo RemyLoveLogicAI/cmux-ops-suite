@@ -3,16 +3,16 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.lovelogic.cmux.ops-poller</string>
+    <string>com.cmux.ops-poller</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/Users/lovelogic/.config/cmux/ops/poller.py</string>
+        <string>__HOME__/.config/cmux/ops/poller.py</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/lovelogic/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Applications/cmux.app/Contents/Resources/bin</string>
+        <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Applications/cmux.app/Contents/Resources/bin</string>
     </dict>
     <key>StartInterval</key>
     <integer>20</integer>

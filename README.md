@@ -38,8 +38,8 @@ git clone <this-repo> && cd cmux-ops-suite
 install.sh  doctor.sh  README.md
 files/
   bin/{cmux-wt, cmux-pr-dock}
-  cmux/ops/poller.py   cmux/dock.json
-  launchd/com.lovelogic.cmux.ops-poller.plist
+  cmux/ops/poller.py   cmux/dock.json.in
+  launchd/com.cmux.ops-poller.plist.in   (template — __HOME__/__USER__ rendered at install)
   sidebars/{ops-board.swift, ops-board-lite.js}
   sentinel/cmux-claude-usage.sh   # patched read_token (hashed keychain services)
 ```
