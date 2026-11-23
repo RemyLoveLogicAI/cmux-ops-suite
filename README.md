@@ -1,6 +1,7 @@
 # cmux-ops-suite
 
 Idempotent installer + doctor for the custom cmux ops suite on this machine (cmux 0.65.2, macOS arm64).
+Repo: https://github.com/RemyLoveLogicAI/cmux-ops-suite (private)
 
 ## What it installs
 
@@ -19,7 +20,7 @@ Idempotent installer + doctor for the custom cmux ops suite on this machine (cmu
 ## Install
 
 ```sh
-git clone <this-repo> && cd cmux-ops-suite
+git clone https://github.com/RemyLoveLogicAI/cmux-ops-suite && cd cmux-ops-suite
 ./install.sh     # idempotent — safe to re-run
 ./doctor.sh      # health check, exit 1 on FAIL
 ```
