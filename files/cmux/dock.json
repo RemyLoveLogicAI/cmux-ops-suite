@@ -1,0 +1,11 @@
+{
+  "controls": [
+    {
+      "id": "pr-dock",
+      "title": "GitHub PRs",
+      "type": "terminal",
+      "command": "/Users/lovelogic/.local/bin/cmux-pr-dock",
+      "height": 340
+    }
+  ]
+}

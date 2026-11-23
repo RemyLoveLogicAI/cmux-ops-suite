@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""
+cmux-pr-dock: Right-hand Dock panel for GitHub PR diffs, review status, and CI logs.
+Auto-follows the active cmux workspace just like cmux-linear-sidebar.
+"""
+
+import curses
+import json
+import os
+import shutil
+import subprocess
+import time
+
+POLL_WORKSPACE_SEC = 2.0
+PR_CACHE_TTL_SEC = 30.0
+CMD_TIMEOUT_SEC = 8
+
+CMUX_BIN = shutil.which("cmux") or "/Applications/cmux.app/Contents/Resources/bin/cmux"
+
+
+def run(cmd: list[str], cwd: str | None = None, timeout: int = CMD_TIMEOUT_SEC) -> tuple[int, str]:
+    try:
+        res = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return res.returncode, res.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 1, ""
+
+
+def get_active_workspace() -> dict | None:
+    rc, out = run([CMUX_BIN, "workspace", "list", "--json"], timeout=4)
+    if rc != 0 or not out:
+        return None
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        return None
+    items = data.get("workspaces", []) if isinstance(data, dict) else data
+    for ws in items:
+        if ws.get("selected") or ws.get("focused") or ws.get("isSelected"):
+            return ws
+    return items[0] if items else None
+
+
+def get_repo_context(cwd: str) -> tuple[str, str] | None:
+    if not cwd or not os.path.isdir(cwd):
+        return None
+    rc, top = run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, timeout=4)
+    if rc != 0 or not top:
+        return None
+    _, branch = run(["git", "branch", "--show-current"], cwd=top, timeout=4)
+    if not branch:
+        _, branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=top, timeout=4)
+    return top, branch or "HEAD"
+
+
+def fetch_pr(repo: str, branch: str) -> dict:
+    fields = ",".join([
+        "number", "title", "url", "state", "isDraft", "mergeable",
+        "reviewDecision", "additions", "deletions", "changedFiles",
+        "headRefName", "baseRefName", "statusCheckRollup",
+    ])
+    rc, out = run(["gh", "pr", "view", branch, "--json", fields], cwd=repo)
+    if rc != 0 or not out:
+        return {"exists": False, "repo": repo, "branch": branch}
+    try:
+        data = json.loads(out)
+        data["exists"] = True
+        data["repo"] = repo
+        data["branch"] = branch
+        return data
+    except json.JSONDecodeError:
+        return {"exists": False, "repo": repo, "branch": branch}
+
+
+def open_pager(stdscr, shell_cmd: str, cwd: str) -> None:
+    """Suspend curses cleanly, run interactive pager (diff / logs / comments), then resume."""
+    curses.def_prog_mode()
+    curses.endwin()
+    try:
+        subprocess.run(["bash", "-lc", shell_cmd], cwd=cwd)
+    finally:
+        curses.reset_prog_mode()
+        stdscr.refresh()
+        curses.curs_set(0)
+
+
+def draw(stdscr, ws_title: str, repo: str, branch: str, pr: dict, last_sync: float) -> None:
+    stdscr.erase()
+    h, w = stdscr.getmaxyx()
+
+    def put(y: int, x: int, text: str, attr: int = 0) -> None:
+        if 0 <= y < h and 0 <= x < w:
+            try:
+                stdscr.addnstr(y, x, text, max(0, w - x - 1), attr)
+            except curses.error:
+                pass
+
+    repo_name = os.path.basename(repo) if repo else "no-repo"
+    put(0, 1, f"GH PR DOCK · {repo_name}", curses.A_BOLD | curses.color_pair(4))
+    put(1, 1, f"ws: {ws_title}  branch: {branch}", curses.color_pair(5))
+    put(2, 0, "─" * max(1, w - 1), curses.color_pair(5))
+
+    y = 4
+    if not repo:
+        put(y, 1, "Active workspace is not inside a git repository.", curses.color_pair(5))
+    elif not pr.get("exists"):
+        put(y, 1, f"No open GitHub PR for branch '{branch}'.", curses.color_pair(3))
+        put(y + 2, 1, "Press [n] to create a PR via gh pr create", curses.color_pair(5))
+    else:
+        state = "DRAFT" if pr.get("isDraft") else pr.get("state", "OPEN")
+        review = pr.get("reviewDecision") or "PENDING_REVIEW"
+        state_color = curses.color_pair(2) if review == "APPROVED" else curses.color_pair(3)
+
+        put(y, 1, f"#{pr['number']}  {pr.get('title', '')}", curses.A_BOLD)
+        y += 1
+        put(
+            y, 1,
+            f"[{state}]  [{review}]  {pr.get('headRefName')} → {pr.get('baseRefName')}",
+            state_color,
+        )
+        y += 1
+        put(
+            y, 1,
+            f"+{pr.get('additions', 0)} / -{pr.get('deletions', 0)}  "
+            f"({pr.get('changedFiles', 0)} files)  merge: {pr.get('mergeable', '?')}",
+            curses.color_pair(4),
+        )
+        y += 2
+
+        checks = pr.get("statusCheckRollup") or []
+        put(y, 1, f"CI CHECKS ({len(checks)})", curses.A_BOLD)
+        y += 1
+
+        if not checks:
+            put(y, 2, "No status checks reported.", curses.color_pair(5))
+            y += 1
+        else:
+            for c in checks:
+                if y >= h - 4:
+                    put(y, 2, f"... +{len(checks)} total checks", curses.color_pair(5))
+                    break
+                name = c.get("name") or c.get("context") or "check"
+                concl = (c.get("conclusion") or "").upper()
+                stat = (c.get("status") or c.get("state") or "").upper()
+                if concl == "SUCCESS" or stat == "SUCCESS":
+                    icon, col = "✓", curses.color_pair(2)
+                elif concl in {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED"} or stat == "FAILURE":
+                    icon, col = "✗", curses.color_pair(1)
+                else:
+                    icon, col = "◔", curses.color_pair(3)
+                put(y, 2, f"{icon} {name}", col)
+                y += 1
+
+    # Footer command bar
+    age = int(time.time() - last_sync) if last_sync > 0 else 0
+    put(h - 3, 0, "─" * max(1, w - 1), curses.color_pair(5))
+    put(h - 2, 1, "[d] Diff  [f] Failed Logs  [c] Comments  [o] Open  [r] Refresh  [q] Quit", curses.A_BOLD)
+    put(h - 1, 1, f"Synced {age}s ago · Auto-tracks focused cmux workspace", curses.color_pair(5))
+    stdscr.refresh()
+
+
+def main(stdscr) -> None:
+    curses.curs_set(0)
+    curses.start_color()
+    curses.use_default_colors()
+    curses.init_pair(1, curses.COLOR_RED, -1)
+    curses.init_pair(2, curses.COLOR_GREEN, -1)
+    curses.init_pair(3, curses.COLOR_YELLOW, -1)
+    curses.init_pair(4, curses.COLOR_CYAN, -1)
+    curses.init_pair(5, curses.COLOR_WHITE, -1)
+    stdscr.timeout(500)
+
+    cache: dict[tuple[str, str], tuple[float, dict]] = {}
+    last_ws_poll = 0.0
+    ws_title, repo, branch = "—", "", "—"
+    pr: dict = {"exists": False}
+    last_sync = 0.0
+
+    while True:
+        now = time.time()
+        if now - last_ws_poll >= POLL_WORKSPACE_SEC:
+            last_ws_poll = now
+            ws = get_active_workspace()
+            if ws:
+                ws_title = ws.get("title", "workspace")
+                cwd = ws.get("current_directory") or ws.get("directory") or ws.get("cwd") or ""
+                ctx = get_repo_context(cwd)
+                if ctx:
+                    repo, branch = ctx
+                    key = (repo, branch)
+                    cached = cache.get(key)
+                    if not cached or (now - cached[0]) >= PR_CACHE_TTL_SEC:
+                        pr = fetch_pr(repo, branch)
+                        cache[key] = (now, pr)
+                        last_sync = now
+                    else:
+                        last_sync, pr = cached
+                else:
+                    repo, branch, pr = "", "—", {"exists": False}
+
+        draw(stdscr, ws_title, repo, branch, pr, last_sync)
+
+        ch = stdscr.getch()
+        if ch == -1:
+            continue
+        if ch in (ord("q"), ord("Q")):
+            break
+        elif ch in (ord("r"), ord("R")) and repo:
+            pr = fetch_pr(repo, branch)
+            cache[(repo, branch)] = (time.time(), pr)
+            last_sync = time.time()
+        elif ch in (ord("d"), ord("D")) and repo and pr.get("exists"):
+            open_pager(stdscr, f"gh pr diff {pr['number']} --color=always | less -R", repo)
+        elif ch in (ord("f"), ord("F")) and repo and pr.get("exists"):
+            # Inspect the latest failed workflow run for this PR's branch
+            safe_branch = branch.replace("'", "'\\''")
+            cmd = (
+                f"RUN_ID=$(gh run list --branch '{safe_branch}' --status failure --limit 1 --json databaseId -q '.[0].databaseId'); "
+                f"if [ -n \"$RUN_ID\" ]; then gh run view \"$RUN_ID\" --log-failed | less -R; "
+                f"else echo 'No failed workflow runs found for {branch}.' && read -n 1 -s -r -p 'Press any key...'; fi"
+            )
+            open_pager(stdscr, cmd, repo)
+        elif ch in (ord("c"), ord("C")) and repo and pr.get("exists"):
+            open_pager(stdscr, f"gh pr view {pr['number']} --comments | less -R", repo)
+        elif ch in (ord("o"), ord("O")) and repo and pr.get("exists"):
+            run(["gh", "pr", "view", str(pr["number"]), "--web"], cwd=repo)
+        elif ch in (ord("n"), ord("N")) and repo and not pr.get("exists"):
+            open_pager(stdscr, "gh pr create", repo)
+            pr = fetch_pr(repo, branch)
+            cache[(repo, branch)] = (time.time(), pr)
+            last_sync = time.time()
+
+
+if __name__ == "__main__":
+    curses.wrapper(main)

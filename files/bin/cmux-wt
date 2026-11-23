@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# cmux-wt — create a git worktree and open a cmux workspace running an agent in it.
+#
+# Usage: cmux-wt <branch-name> [agent] [base-ref]
+#   agent: claude (default) | omp | codex | opencode | gemini | - (plain shell)
+#   base-ref: defaults to HEAD
+#
+# Examples:
+#   cmux-wt feature/auth omp
+#   cmux-wt fix/login codex main
+#   cmux-wt scratch-123 -
+set -euo pipefail
+
+BRANCH="${1:?Usage: cmux-wt <branch-name> [agent: claude|omp|codex|opencode|gemini|-] [base-ref]}"
+AGENT="${2:-claude}"
+BASE="${3:-HEAD}"
+
+command -v cmux >/dev/null || { echo "cmux not on PATH" >&2; exit 1; }
+command -v git >/dev/null || { echo "git not on PATH" >&2; exit 1; }
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_NAME="$(basename "$REPO_ROOT")"
+SAFE_BRANCH="${BRANCH//\//-}"
+WT_DIR="$(dirname "$REPO_ROOT")/.worktrees/${REPO_NAME}/${SAFE_BRANCH}"
+
+mkdir -p "$(dirname "$WT_DIR")"
+if [[ ! -d "$WT_DIR" ]]; then
+  if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+    git -C "$REPO_ROOT" worktree add "$WT_DIR" "$BRANCH" >&2
+  else
+    git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WT_DIR" "$BASE" >&2
+  fi
+else
+  echo "worktree exists: $WT_DIR" >&2
+fi
+
+case "$AGENT" in
+  claude)   LAUNCH="claude" ;;
+  omp)      LAUNCH="omp" ;;
+  codex)    LAUNCH="codex" ;;
+  opencode) LAUNCH="opencode" ;;
+  gemini)   LAUNCH="gemini" ;;
+  -)        LAUNCH="" ;;
+  *)        echo "unknown agent '$AGENT' (claude|omp|codex|opencode|gemini|-)" >&2; exit 2 ;;
+esac
+
+if [[ -n "$LAUNCH" ]]; then
+  CMD="cd '$WT_DIR' && $LAUNCH"
+else
+  CMD="cd '$WT_DIR'"
+fi
+
+WS_TITLE="${REPO_NAME}/${BRANCH}"
+WS_JSON="$(cmux workspace create --name "$WS_TITLE" --cwd "$WT_DIR" --command "$CMD" --json)"
+WS_REF="$(printf '%s' "$WS_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin)["workspace_ref"])')"
+
+# --- Workspace group: Repos/<repo-name> (best-effort; warn, never abort) ---
+GROUP_NAME="Repos/${REPO_NAME}"
+GROUP_ID="$(cmux workspace-group list --json 2>/dev/null | python3 -c 'import sys,json; n=sys.argv[1]; g=[x for x in json.load(sys.stdin).get("groups",[]) if x.get("name")==n]; print(g[0]["ref"] if g else "")' "$GROUP_NAME" || true)"
+if [[ -z "$GROUP_ID" ]]; then
+  GROUP_ID="$(cmux workspace-group create --name "$GROUP_NAME" --json 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["group"]["ref"])' || true)"
+fi
+if [[ -n "$GROUP_ID" ]]; then
+  cmux workspace-group add --group "$GROUP_ID" --workspace "$WS_REF" >/dev/null 2>&1 || echo "warn: workspace-group add failed for $GROUP_NAME" >&2
+else
+  echo "warn: could not resolve/create group $GROUP_NAME" >&2
+fi
+
+cmux set-status wt "$BRANCH" --icon arrow.triangle.branch --color "#38BDF8" --workspace "$WS_REF" >/dev/null 2>&1 || true
+cmux set-status agent "${AGENT}:booting" --icon cpu --color "#F59E0B" --workspace "$WS_REF" >/dev/null 2>&1 || true
+cmux workspace-action set-description --workspace "$WS_REF" --description "wt:${SAFE_BRANCH} | pr:checking | agent:${AGENT}" >/dev/null 2>&1 || true
+
+echo "$WS_REF  $WS_TITLE  ->  $WT_DIR"
