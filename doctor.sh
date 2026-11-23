@@ -34,10 +34,17 @@ done
 
 # ── launchd poller ───────────────────────────────────────────────────────────
 echo "launchd:"
-if launchctl print "gui/$UID_N/com.lovelogic.cmux.ops-poller" 2>/dev/null | grep -q "state = running"; then
-  ok "ops-poller running"
+# Periodic job: runs every 20s then exits — "not running" between ticks is normal.
+# Healthy = label registered AND last exit code 0 (or never exited).
+_lp=$(launchctl print "gui/$UID_N/com.lovelogic.cmux.ops-poller" 2>/dev/null)
+if printf '%s' "$_lp" | grep -q "com.lovelogic.cmux.ops-poller"; then
+  if printf '%s' "$_lp" | grep -qE "last exit code = 0|last exit code = \(never exited\)|state = running"; then
+    ok "ops-poller loaded (periodic, last exit 0/running)"
+  else
+    bad "ops-poller failing: $(printf '%s' "$_lp" | grep 'last exit' | head -1)"
+  fi
 else
-  bad "ops-poller not running"
+  bad "ops-poller not loaded"
 fi
 CACHE="$HOME_DIR/.config/cmux/ops/state-cache.json"
 if [ -f "$CACHE" ]; then
@@ -46,7 +53,6 @@ if [ -f "$CACHE" ]; then
 else
   warn "poller cache missing (no git workspaces seen yet?)"
 fi
-
 # ── sidebars ─────────────────────────────────────────────────────────────────
 echo "sidebars:"
 "$CMUX" sidebar validate 2>/dev/null | tail -1 | grep -q "0 invalid" && ok "all sidebars valid" || bad "sidebar validation failed"
