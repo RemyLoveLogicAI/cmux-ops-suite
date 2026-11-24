@@ -16,6 +16,9 @@ Repo: https://github.com/RemyLoveLogicAI/cmux-ops-suite (private)
 | cmux-sentinel | `~/.cmux-sentinel` → `~/bin/` | Claude/Codex/Amp usage meter workspaces + bridge hooks; `USAGE_PROVIDERS="claude codex amp"` |
 | credential patch | `~/bin/cmux-claude-usage.sh` | re-applied after every sentinel install (keychain hashed-service fallback) |
 | agent hooks | cmux-managed | `cmux hooks setup -y` for all detected agents |
+| `memory-board.js` | `~/.config/cmux/sidebars/` | unified memory sidebar: TypeFire + LifeOS + OH HAI + Supermemory + Mem |
+| `board.py` | `~/.config/cmux/memory/` + LaunchAgent | one-shot collector (60s): writes `state.json` + publishes JSON to `mem-board` carrier workspace description |
+| `env` | `~/.config/cmux/memory/env` (chmod 600) | `SUPERMEMORY_API_KEY` — never in a plist |
 
 ## Install
 
@@ -39,9 +42,9 @@ git clone https://github.com/RemyLoveLogicAI/cmux-ops-suite && cd cmux-ops-suite
 install.sh  doctor.sh  README.md
 files/
   bin/{cmux-wt, cmux-pr-dock}
-  cmux/ops/poller.py   cmux/dock.json.in
-  launchd/com.cmux.ops-poller.plist.in   (template — __HOME__/__USER__ rendered at install)
-  sidebars/{ops-board.swift, ops-board-lite.js}
+  cmux/ops/poller.py   cmux/dock.json.in   cmux/memory/{board.py, env.example}
+  launchd/{com.cmux.ops-poller.plist.in, com.cmux.memory-board.plist.in}
+  sidebars/{ops-board.swift, ops-board-lite.js, memory-board.js}
   sentinel/cmux-claude-usage.sh   # patched read_token (hashed keychain services)
 ```
 
@@ -54,3 +57,6 @@ files/
 - `hooks setup -y` (no `hooks status`); `send-text` does NOT exist.
 - Sidebar interpreter: no `||`, no nil comparisons, no nested Buttons, no `return` in `for`.
 - Socket control already `automation` via Settings — never add to cmux.json.
+- cmux sidebars can't read files — memory-board injects state via a `mem-board` carrier workspace's `description` field (≤3900 chars).
+- `workspace close` needs `--force` for workspaces with running processes; `find_carriers` dedupes on each run.
+- `oh-hai messages list` needs ~30s timeout under launchd (network/keychain latency); `/usr/bin/python3` is 3.9 — board.py uses `from __future__ import annotations`.

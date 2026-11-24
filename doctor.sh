@@ -58,6 +58,7 @@ echo "sidebars:"
 "$CMUX" sidebar validate 2>/dev/null | tail -1 | grep -q "0 invalid" && ok "all sidebars valid" || bad "sidebar validation failed"
 "$CMUX" sidebar validate ops-board 2>/dev/null | grep -q "OK ops-board" && ok "ops-board valid" || bad "ops-board invalid"
 ls "$HOME_DIR/.config/cmux/sidebars/ops-board.js" >/dev/null 2>&1 && warn "ops-board.js still present — shadows ops-board.swift" || ok "no ops-board.js shadow"
+"$CMUX" sidebar validate memory-board 2>/dev/null | grep -q "OK memory-board" && ok "memory-board valid" || warn "memory-board invalid"
 
 # ── sentinel ─────────────────────────────────────────────────────────────────
 echo "sentinel:"
@@ -71,6 +72,27 @@ fi
 for label in claude codex amp; do
   launchctl print "gui/$UID_N/com.cmux-${label}-usage" >/dev/null 2>&1 && ok "com.cmux-${label}-usage loaded" || warn "com.cmux-${label}-usage not loaded"
 done
+
+# ── memory board ─────────────────────────────────────────────────────────────
+echo "memory board:"
+[ -f "$HOME_DIR/.config/cmux/memory/board.py" ] && ok "board.py present" || bad "board.py missing"
+[ -f "$HOME_DIR/.config/cmux/memory/env" ] && \
+  [ "$(stat -f '%Lp' "$HOME_DIR/.config/cmux/memory/env" 2>/dev/null)" = "600" ] \
+  && ok "env file chmod 600" || warn "env file missing or wrong perms"
+_mb=$(launchctl print "gui/$UID_N/com.cmux.memory-board" 2>/dev/null)
+if printf '%s' "$_mb" | grep -q "com.cmux.memory-board"; then
+  _rc=$(printf '%s' "$_mb" | grep 'last exit code' | grep -o '[0-9]*' | head -1)
+  [ "${_rc:-1}" = "0" ] && ok "com.cmux.memory-board last exit 0" || warn "com.cmux.memory-board last exit $_rc"
+else
+  warn "com.cmux.memory-board not loaded"
+fi
+STATE="$HOME_DIR/.config/cmux/memory/state.json"
+if [ -f "$STATE" ]; then
+  _age=$(( $(date +%s) - $(stat -f '%m' "$STATE") ))
+  [ "$_age" -lt 120 ] && ok "state.json fresh (${_age}s)" || warn "state.json stale (${_age}s)"
+else
+  warn "state.json missing"
+fi
 
 # ── groups / cmux ────────────────────────────────────────────────────────────
 echo "cmux:"

@@ -110,6 +110,24 @@ for label in claude codex amp; do
     launchctl bootstrap "gui/$UID_N" "$plist" 2>/dev/null || true
 done
 
+# ── 5b. memory board (one-shot collector + carrier workspace) ────────────────
+say "memory board"
+mkdir -p "$HOME_DIR/.config/cmux/memory"
+install -m 0755 "$FILES/cmux/memory/board.py" "$HOME_DIR/.config/cmux/memory/board.py"
+# env file: only create if absent (never overwrite a real key)
+if [ ! -f "$HOME_DIR/.config/cmux/memory/env" ]; then
+  install -m 0600 "$FILES/cmux/memory/env.example" "$HOME_DIR/.config/cmux/memory/env"
+  warn "created ~/.config/cmux/memory/env — add SUPERMEMORY_API_KEY to enable Supermemory"
+fi
+LA2="$HOME_DIR/Library/LaunchAgents/com.cmux.memory-board.plist"
+sed -e "s|__HOME__|$HOME_DIR|g" \
+    "$FILES/launchd/com.cmux.memory-board.plist.in" > "$LA2"
+chmod 0644 "$LA2"
+launchctl bootout "gui/$UID_N/com.cmux.memory-board" 2>/dev/null || true
+launchctl bootstrap "gui/$UID_N" "$LA2" 2>/dev/null || true
+install -m 0644 "$FILES/sidebars/memory-board.js" "$SB/memory-board.js"
+"$CMUX" sidebar validate memory-board >/dev/null 2>&1 || warn "memory-board failed validation"
+
 # ── 6. hooks + settings ──────────────────────────────────────────────────────
 say "agent hooks + settings"
 "$CMUX" hooks setup -y >/dev/null 2>&1 || warn "cmux hooks setup reported errors (copilot config may be invalid — non-fatal)"
@@ -118,7 +136,8 @@ say "agent hooks + settings"
 say "done"
 cat <<'EOF'
 Live now: cmux-wt, cmux-pr-dock (dock.json seeded), ops poller (launchd, 20s),
-ops-board.swift sidebar (selected), sentinel meters (claude/codex/amp), agent hooks.
+ops-board.swift sidebar (selected), sentinel meters (claude/codex/amp), agent hooks,
+memory-board sidebar (carrier workspace + launchd collector, 60s).
 
 Pending (manual):
   - Linear sidebar: run ~/.cmux-linear-sidebar/install.sh in a cmux terminal (needs lin_api_ key)
