@@ -15,6 +15,7 @@ Repo: https://github.com/RemyLoveLogicAI/cmux-ops-suite (private)
 | `dock.json` | `~/.config/cmux/` | seeds right-Dock `pr-dock` terminal control (merged by id) |
 | cmux-sentinel | `~/.cmux-sentinel` → `~/bin/` | Claude/Codex/Amp usage meter workspaces + bridge hooks; `USAGE_PROVIDERS="claude codex amp"` |
 | credential patch | `~/bin/cmux-claude-usage.sh` | re-applied after every sentinel install (keychain hashed-service fallback) |
+| sentinel-watch | `~/bin/` + LaunchAgent (60s) | recreates per-window meter workspaces after cmux restarts; layout pass only when sentinels were actually missing |
 | agent hooks | cmux-managed | `cmux hooks setup -y` for all detected agents |
 | `memory-board.js` | `~/.config/cmux/sidebars/` | unified memory sidebar: TypeFire + LifeOS + OH HAI + Supermemory + Mem |
 | `board.py` | `~/.config/cmux/memory/` + LaunchAgent | one-shot collector (60s): writes `state.json` + publishes JSON to `mem-board` carrier workspace description |
@@ -43,9 +44,10 @@ install.sh  doctor.sh  README.md
 files/
   bin/{cmux-wt, cmux-pr-dock}
   cmux/ops/poller.py   cmux/dock.json.in   cmux/memory/{board.py, env.example}
-  launchd/{com.cmux.ops-poller.plist.in, com.cmux.memory-board.plist.in}
+  launchd/{com.cmux.ops-poller.plist.in, com.cmux.memory-board.plist.in,
+           com.cmux.sentinel-watch.plist.in}
   sidebars/{ops-board.swift, ops-board-lite.js, memory-board.js}
-  sentinel/cmux-claude-usage.sh   # patched read_token (hashed keychain services)
+  sentinel/{cmux-claude-usage.sh, cmux-sentinel-watch.sh}
 ```
 
 ## cmux 0.65.2 gotchas baked in

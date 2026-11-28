@@ -109,6 +109,19 @@ for label in claude codex amp; do
   launchctl print "gui/$UID_N/com.cmux-${label}-usage" >/dev/null 2>&1 || \
     launchctl bootstrap "gui/$UID_N" "$plist" 2>/dev/null || true
 done
+# Sentinel watch: recreates per-window meter workspaces after cmux restarts.
+# Cheap no-layout pass every 60s; full layout pass only when sentinels were missing.
+if [ -f "$FILES/sentinel/cmux-sentinel-watch.sh" ]; then
+  install -m 0755 "$FILES/sentinel/cmux-sentinel-watch.sh" "$HOME_DIR/bin/cmux-sentinel-watch.sh"
+fi
+LAW="$HOME_DIR/Library/LaunchAgents/com.cmux.sentinel-watch.plist"
+if [ -f "$FILES/launchd/com.cmux.sentinel-watch.plist.in" ]; then
+  sed -e "s|__HOME__|$HOME_DIR|g" \
+      "$FILES/launchd/com.cmux.sentinel-watch.plist.in" > "$LAW"
+  chmod 0644 "$LAW"
+  launchctl bootout "gui/$UID_N/com.cmux.sentinel-watch" 2>/dev/null || true
+  launchctl bootstrap "gui/$UID_N" "$LAW" 2>/dev/null || true
+fi
 
 # ── 5b. memory board (one-shot collector + carrier workspace) ────────────────
 say "memory board"
